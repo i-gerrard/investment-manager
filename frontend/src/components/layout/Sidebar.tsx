@@ -9,6 +9,8 @@ const navItems = [
   { href: "/stocks", label: "Stocks", icon: "⊡" },
   { href: "/research", label: "Research", icon: "⊕" },
   { href: "/reports/morning", label: "Reports", icon: "⊟" },
+  { href: "/simulation", label: "Simulation", icon: "◈" },
+  { href: "/broker-sync", label: "Broker Sync", icon: "⟳" },
 ];
 
 export default function Sidebar() {

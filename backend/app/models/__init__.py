@@ -6,3 +6,5 @@ from app.models.signal import Signal, SignalEvolution
 from app.models.sentiment import SentimentScore, SentimentAggregate
 from app.models.report import MorningReport, SynthesisReport, SectorRecommendation, StockCard
 from app.models.macro_event import MacroSignal as MacroSignalModel, Event
+from app.models.simulation import SimulatedPortfolio, SimulatedPosition, SimulatedTrade, TradeReview
+from app.models.broker_sync import BrokerSyncLog, BrokerPortfolioMapping
