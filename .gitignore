@@ -5,3 +5,5 @@ __pycache__/
 node_modules/
 .next/
 pgdata/
+.venv/
+investr.db

@@ -1,3 +1,4 @@
+from typing import Optional
 import uuid
 from datetime import date, datetime
 
@@ -32,11 +33,11 @@ class SignalEvolution(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     signal_id: Mapped[str] = mapped_column(String(36), ForeignKey("signals.id", ondelete="CASCADE"), nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False)
-    new_confidence: Mapped[str | None] = mapped_column(String(4))
-    new_intensity: Mapped[int | None] = mapped_column(Integer)
+    new_confidence: Mapped[Optional[str]] = mapped_column(String(4))
+    new_intensity: Mapped[Optional[int]] = mapped_column(Integer)
     reasoning: Mapped[str] = mapped_column(Text, nullable=False)
-    new_information_summary: Mapped[dict | None] = mapped_column(JSON)
-    assumption_status: Mapped[dict | None] = mapped_column(JSON)
+    new_information_summary: Mapped[Optional[dict]] = mapped_column(JSON)
+    assumption_status: Mapped[Optional[dict]] = mapped_column(JSON)
     assessment_date: Mapped[date] = mapped_column(Date, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

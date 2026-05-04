@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Optional, Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func
@@ -16,8 +16,8 @@ router = APIRouter(prefix="/api/v1/stocks", tags=["stocks"])
 @router.get("", response_model=StockListResponse)
 async def list_stocks(
     db: Annotated[AsyncSession, Depends(get_db)],
-    market: str | None = Query(None),
-    q: str | None = Query(None),
+    market: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     current_user: Annotated[User, Depends(get_current_user)] = None,

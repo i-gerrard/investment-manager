@@ -1,3 +1,4 @@
+from typing import Optional
 import uuid
 from datetime import datetime
 
@@ -15,7 +16,7 @@ class Stock(Base):
     ticker: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     market: Mapped[str] = mapped_column(String(16), nullable=False)
-    sector: Mapped[str | None] = mapped_column(String(128))
-    industry: Mapped[str | None] = mapped_column(String(256))
+    sector: Mapped[Optional[str]] = mapped_column(String(128))
+    industry: Mapped[Optional[str]] = mapped_column(String(256))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

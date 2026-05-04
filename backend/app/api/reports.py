@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Optional, Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -24,8 +24,8 @@ router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
 @router.get("/morning", response_model=list[MorningReportListResponse])
 async def list_morning_reports(
     db: Annotated[AsyncSession, Depends(get_db)],
-    from_date: str | None = Query(None, alias="from"),
-    to: str | None = Query(None),
+    from_date: Optional[str] = Query(None, alias="from"),
+    to: Optional[str] = Query(None),
 ):
     query = select(MorningReport)
     if from_date:

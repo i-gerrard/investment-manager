@@ -1,5 +1,5 @@
 import hashlib
-from typing import Annotated
+from typing import Optional, Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -15,7 +15,7 @@ security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     if credentials is None:
@@ -49,9 +49,9 @@ async def get_current_user(
 
 
 async def get_optional_user(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> User | None:
+) -> Optional[User]:
     if credentials is None:
         return None
     try:

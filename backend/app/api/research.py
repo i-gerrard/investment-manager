@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Optional, Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func
@@ -26,12 +26,12 @@ router = APIRouter(prefix="/api/v1/research", tags=["research"])
 @router.get("/reports", response_model=ReportListResponse)
 async def list_reports(
     db: Annotated[AsyncSession, Depends(get_db)],
-    stock_id: str | None = Query(None),
-    phase: str | None = Query(None),
-    q: str | None = Query(None),
+    stock_id: Optional[str] = Query(None),
+    phase: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
-    _: Annotated[User | None, Depends(get_current_user)] = None,
+    _: Annotated[Optional[User], Depends(get_current_user)] = None,
 ):
     query = select(ResearchReport)
     count_query = select(func.count(ResearchReport.id))
