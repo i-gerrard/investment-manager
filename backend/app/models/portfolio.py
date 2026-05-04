@@ -1,8 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import String, DECIMAL, Date, DateTime, ForeignKey, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import String, Float, Date, DateTime, ForeignKey, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -11,8 +10,8 @@ from app.database import Base
 class Portfolio(Base):
     __tablename__ = "portfolios"
 
-    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -25,12 +24,12 @@ class Portfolio(Base):
 class Holding(Base):
     __tablename__ = "holdings"
 
-    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
-    portfolio_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("portfolios.id", ondelete="CASCADE"), nullable=False)
-    stock_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("stocks.id", ondelete="RESTRICT"), nullable=False)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    portfolio_id: Mapped[str] = mapped_column(String(36), ForeignKey("portfolios.id", ondelete="CASCADE"), nullable=False)
+    stock_id: Mapped[str] = mapped_column(String(36), ForeignKey("stocks.id", ondelete="RESTRICT"), nullable=False)
     ticker: Mapped[str] = mapped_column(String(16), nullable=False)
-    cost_basis: Mapped[float] = mapped_column(DECIMAL(18, 4))
-    position_percent: Mapped[float] = mapped_column(DECIMAL(6, 3))
+    cost_basis: Mapped[float] = mapped_column(Float)
+    position_percent: Mapped[float] = mapped_column(Float)
     entry_date: Mapped[date | None] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
