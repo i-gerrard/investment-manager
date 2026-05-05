@@ -18,6 +18,16 @@ class HoldingUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+class StockBrief(BaseModel):
+    id: str
+    ticker: str
+    name: str
+    market: str
+    sector: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
 class HoldingResponse(BaseModel):
     id: str
     portfolio_id: str
@@ -27,7 +37,7 @@ class HoldingResponse(BaseModel):
     position_percent: float
     entry_date: Optional[date] = None
     notes: Optional[str] = None
-    stock: Optional[dict] = None
+    stock: Optional[StockBrief] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -1,8 +1,9 @@
 "use client";
 
-import { api } from "@/lib/api";
+import { useGet } from "@/lib/useApi";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import ErrorAlert from "@/components/ui/ErrorAlert";
 
 interface DashboardData {
   portfolios: { id: string; name: string; holding_count: number }[];
@@ -11,20 +12,19 @@ interface DashboardData {
 }
 
 export default function Dashboard() {
-  const [data, setData] = useState<DashboardData | null>(null);
+  const { data, loading, error, refetch } = useGet<DashboardData>("/dashboard");
 
-  useEffect(() => {
-    api.get<DashboardData>("/dashboard").then(setData).catch(() => {});
-  }, []);
+  if (loading) return <LoadingSpinner />;
+  if (error) return <ErrorAlert message={error} onRetry={refetch} />;
+  if (!data) return null;
 
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* Portfolios */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold text-primary mb-3">Portfolios</h2>
-          {data?.portfolios.length ? (
+          {data.portfolios.length ? (
             <ul className="space-y-2">
               {data.portfolios.map((p) => (
                 <li key={p.id}>
@@ -39,10 +39,9 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Recent Research */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold text-primary mb-3">Recent Research</h2>
-          {data?.recent_reports.length ? (
+          {data.recent_reports.length ? (
             <ul className="space-y-2">
               {data.recent_reports.map((r) => (
                 <li key={r.id} className="text-sm">
@@ -57,10 +56,9 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Latest Morning Report */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold text-primary mb-3">Latest Morning Report</h2>
-          {data?.latest_morning_report ? (
+          {data.latest_morning_report ? (
             <div>
               <p className="text-sm font-medium">{data.latest_morning_report.report_date}</p>
               <p className="text-xs text-gray-500 mt-1">{data.latest_morning_report.headline}</p>

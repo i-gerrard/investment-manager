@@ -1,30 +1,27 @@
 "use client";
 
-import { api } from "@/lib/api";
+import { useGet } from "@/lib/useApi";
 import type { Stock } from "@/types";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import ErrorAlert from "@/components/ui/ErrorAlert";
 
 export default function StocksPage() {
-  const [stocks, setStocks] = useState<Stock[]>([]);
-  const [total, setTotal] = useState(0);
   const [q, setQ] = useState("");
   const [market, setMarket] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
 
-  async function fetchStocks() {
-    setLoading(true);
+  const buildPath = useCallback(() => {
     const params = new URLSearchParams();
-    if (q) params.set("q", q);
+    if (query) params.set("q", query);
     if (market) params.set("market", market);
-    const data = await api.get<{ items: Stock[]; total: number }>(`/stocks?${params}`);
-    setStocks(data.items);
-    setTotal(data.total);
-    setLoading(false);
-  }
+    const qs = params.toString();
+    return `/stocks${qs ? "?" + qs : ""}`;
+  }, [query, market]);
 
-  useEffect(() => {
-    fetchStocks();
-  }, []);
+  const { data, loading, error, refetch } = useGet<{ items: Stock[]; total: number }>(buildPath(), [buildPath]);
+  const stocks = data?.items ?? [];
+  const total = data?.total ?? 0;
 
   return (
     <div>
@@ -35,22 +32,21 @@ export default function StocksPage() {
           placeholder="Search ticker or name..."
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && fetchStocks()}
+          onKeyDown={(e) => e.key === "Enter" && setQuery(q)}
           className="px-3 py-2 border rounded-md text-sm w-64 focus:outline-none focus:ring-2 focus:ring-primary"
         />
-        <select value={market} onChange={(e) => { setMarket(e.target.value); }} className="px-3 py-2 border rounded-md text-sm">
+        <select value={market} onChange={(e) => setMarket(e.target.value)} className="px-3 py-2 border rounded-md text-sm">
           <option value="">All Markets</option>
           <option value="A-share">A-share</option>
           <option value="US">US</option>
           <option value="HK">HK</option>
         </select>
-        <button onClick={fetchStocks} className="bg-primary text-white px-4 py-2 rounded-md text-sm">Search</button>
+        <button onClick={() => setQuery(q)} className="bg-primary text-white px-4 py-2 rounded-md text-sm">Search</button>
       </div>
       <p className="text-xs text-gray-400 mb-4">{total} stocks</p>
 
-      {loading ? (
-        <p className="text-gray-400">Loading...</p>
-      ) : (
+      {loading ? <LoadingSpinner /> :
+       error ? <ErrorAlert message={error} onRetry={refetch} /> : (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <table className="w-full">
             <thead className="bg-gray-50 border-b">

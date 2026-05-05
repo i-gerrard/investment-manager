@@ -1,9 +1,11 @@
 "use client";
 
-import { api } from "@/lib/api";
+import { useGet } from "@/lib/useApi";
 import type { Holding, Portfolio } from "@/types";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
+import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import ErrorAlert from "@/components/ui/ErrorAlert";
 
 interface PortfolioDetail extends Portfolio {
   holdings: Holding[];
@@ -11,15 +13,11 @@ interface PortfolioDetail extends Portfolio {
 
 export default function PortfolioDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const [portfolio, setPortfolio] = useState<PortfolioDetail | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: portfolio, loading, error, refetch } = useGet<PortfolioDetail>(`/portfolios/${id}`, [id]);
 
-  useEffect(() => {
-    api.get<PortfolioDetail>(`/portfolios/${id}`).then(setPortfolio).finally(() => setLoading(false));
-  }, [id]);
-
-  if (loading) return <p className="text-gray-400">Loading...</p>;
-  if (!portfolio) return <p className="text-red-500">Portfolio not found</p>;
+  if (loading) return <LoadingSpinner />;
+  if (error) return <ErrorAlert message={error} onRetry={refetch} />;
+  if (!portfolio) return <ErrorAlert message="Portfolio not found" />;
 
   return (
     <div>

@@ -2,6 +2,8 @@ from datetime import date, datetime
 from typing import Optional
 from pydantic import BaseModel, Field
 
+from app.schemas.portfolio import StockBrief
+
 
 class CitationCreate(BaseModel):
     author_org: str = Field(min_length=1, max_length=256)
@@ -55,7 +57,7 @@ class ReportResponse(BaseModel):
     confidence: Optional[str] = None
     intensity: Optional[int] = None
     core_thesis: Optional[str] = None
-    stock: Optional[dict] = None
+    stock: Optional[StockBrief] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

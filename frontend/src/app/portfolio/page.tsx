@@ -1,17 +1,14 @@
 "use client";
 
-import { api } from "@/lib/api";
+import { useGet } from "@/lib/useApi";
 import type { Portfolio } from "@/types";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import ErrorAlert from "@/components/ui/ErrorAlert";
+import EmptyState from "@/components/ui/EmptyState";
 
 export default function PortfolioListPage() {
-  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.get<Portfolio[]>("/portfolios").then(setPortfolios).finally(() => setLoading(false));
-  }, []);
+  const { data: portfolios, loading, error, refetch } = useGet<Portfolio[]>("/portfolios");
 
   return (
     <div>
@@ -21,11 +18,9 @@ export default function PortfolioListPage() {
           + New Portfolio
         </Link>
       </div>
-      {loading ? (
-        <p className="text-gray-400">Loading...</p>
-      ) : portfolios.length === 0 ? (
-        <p className="text-gray-400">No portfolios yet. Create one to get started.</p>
-      ) : (
+      {loading ? <LoadingSpinner /> :
+       error ? <ErrorAlert message={error} onRetry={refetch} /> :
+       !portfolios?.length ? <EmptyState message="No portfolios yet. Create one to get started." /> : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {portfolios.map((p) => (
             <Link key={p.id} href={`/portfolio/${p.id}`} className="block bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow">

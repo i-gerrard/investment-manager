@@ -1,29 +1,21 @@
 "use client";
 
-import { api } from "@/lib/api";
+import { useGet } from "@/lib/useApi";
 import type { ResearchReport } from "@/types";
-import { useEffect, useState } from "react";
+import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import ErrorAlert from "@/components/ui/ErrorAlert";
+import EmptyState from "@/components/ui/EmptyState";
 
 export default function ResearchPage() {
-  const [reports, setReports] = useState<ResearchReport[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.get<{ items: ResearchReport[] }>("/research/reports?limit=50").then(d => setReports(d.items)).finally(() => setLoading(false));
-  }, []);
-
-  const phaseLabels: Record<string, string> = {
-    "0": "Exec Summary", "1": "Business", "2": "Industry", "3": "Breakdown",
-    "4": "Financial", "5": "Governance", "6": "Sentiment", "7": "Valuation",
-    "8": "Synthesis", "9": "Leverage", "synthesis": "Synthesis"
-  };
+  const { data, loading, error, refetch } = useGet<{ items: ResearchReport[] }>("/research/reports?limit=50");
+  const reports = data?.items ?? [];
 
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">Research Reports</h1>
-      {loading ? (
-        <p className="text-gray-400">Loading...</p>
-      ) : (
+      {loading ? <LoadingSpinner /> :
+       error ? <ErrorAlert message={error} onRetry={refetch} /> :
+       reports.length === 0 ? <EmptyState message="No research reports yet" /> : (
         <div className="space-y-3">
           {reports.map((r) => (
             <div key={r.id} className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow">

@@ -1,7 +1,6 @@
 from typing import Optional, Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -15,8 +14,11 @@ from app.schemas.report import (
     SynthesisReportCreate,
     SynthesisReportResponse,
 )
+from app.services.report import MorningReportService, SynthesisReportService
 
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
+morning_service = MorningReportService()
+synthesis_service = SynthesisReportService()
 
 
 # ── Morning Reports ──
@@ -27,14 +29,7 @@ async def list_morning_reports(
     from_date: Optional[str] = Query(None, alias="from"),
     to: Optional[str] = Query(None),
 ):
-    query = select(MorningReport)
-    if from_date:
-        query = query.where(MorningReport.report_date >= from_date)
-    if to:
-        query = query.where(MorningReport.report_date <= to)
-    query = query.order_by(MorningReport.report_date.desc()).limit(50)
-    result = await db.execute(query)
-    return [MorningReportListResponse.model_validate(r) for r in result.scalars().all()]
+    return await morning_service.list_with_date_range(db, from_date=from_date, to=to)
 
 
 @router.post("/morning", response_model=MorningReportResponse, status_code=status.HTTP_201_CREATED)
@@ -43,23 +38,17 @@ async def create_morning_report(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    result = await db.execute(select(MorningReport).where(MorningReport.report_date == body.report_date))
-    if result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Report for {body.report_date} already exists")
-
-    report = MorningReport(**body.model_dump())
-    db.add(report)
-    await db.commit()
-    await db.refresh(report)
-    return MorningReportResponse.model_validate(report)
+    if await morning_service.check_date_conflict(db, body.report_date):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Report for {body.report_date} already exists",
+        )
+    return await morning_service.base.create(db, body)
 
 
 @router.get("/morning/{report_id}", response_model=MorningReportResponse)
 async def get_morning_report(report_id: str, db: Annotated[AsyncSession, Depends(get_db)]):
-    result = await db.execute(select(MorningReport).where(MorningReport.id == report_id))
-    report = result.scalar_one_or_none()
-    if not report:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    report = await morning_service.base.get_or_404(db, MorningReport.id == report_id)
     return MorningReportResponse.model_validate(report)
 
 
@@ -69,12 +58,8 @@ async def delete_morning_report(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    result = await db.execute(select(MorningReport).where(MorningReport.id == report_id))
-    report = result.scalar_one_or_none()
-    if not report:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
-    await db.delete(report)
-    await db.commit()
+    report = await morning_service.base.get_or_404(db, MorningReport.id == report_id)
+    await morning_service.base.delete(db, report)
 
 
 # ── Synthesis Reports ──
@@ -84,10 +69,7 @@ async def list_synthesis_reports(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    result = await db.execute(
-        select(SynthesisReport).order_by(SynthesisReport.created_at.desc()).limit(50)
-    )
-    return [SynthesisReportResponse.model_validate(r) for r in result.scalars().all()]
+    return await synthesis_service.list_recent(db)
 
 
 @router.post("/synthesis", response_model=SynthesisReportResponse, status_code=status.HTTP_201_CREATED)
@@ -96,17 +78,10 @@ async def create_synthesis_report(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    report = SynthesisReport(user_id=current_user.id, **body.model_dump())
-    db.add(report)
-    await db.commit()
-    await db.refresh(report)
-    return SynthesisReportResponse.model_validate(report)
+    return await synthesis_service.base.create(db, body, user_id=current_user.id)
 
 
 @router.get("/synthesis/{report_id}", response_model=SynthesisReportResponse)
 async def get_synthesis_report(report_id: str, db: Annotated[AsyncSession, Depends(get_db)]):
-    result = await db.execute(select(SynthesisReport).where(SynthesisReport.id == report_id))
-    report = result.scalar_one_or_none()
-    if not report:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    report = await synthesis_service.base.get_or_404(db, SynthesisReport.id == report_id)
     return SynthesisReportResponse.model_validate(report)

@@ -30,6 +30,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register error handlers
+from app.api.errors import register_error_handlers  # noqa: E402
+register_error_handlers(app)
+
 # Register routers
 from app.api import auth, stocks, portfolios, research, reports as report_routes, dashboard  # noqa: E402
 app.include_router(auth.router)

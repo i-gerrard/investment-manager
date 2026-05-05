@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import MainLayout from "@/components/layout/MainLayout";
+import { AppProvider } from "@/components/layout/AppProvider";
 
 export const metadata: Metadata = {
   title: "Investment Manager",
@@ -15,7 +15,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body className="antialiased">
-        <MainLayout>{children}</MainLayout>
+        <AppProvider>{children}</AppProvider>
       </body>
     </html>
   );
