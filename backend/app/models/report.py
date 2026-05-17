@@ -2,7 +2,7 @@ from typing import Optional
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import String, Text, DateTime, ForeignKey, Date, func
+from sqlalchemy import String, Text, DateTime, Float, ForeignKey, Date, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
@@ -54,15 +54,30 @@ class SectorRecommendation(Base):
 
 
 class StockCard(Base):
+    """A per-stock recommendation row inside a morning report.
+
+    Doubles as the canonical "recommendation" entity for the trade-review
+    workflow: Execution and Simulation rows in review.py reference this id.
+    """
     __tablename__ = "stock_cards"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     sector_recommendation_id: Mapped[str] = mapped_column(String(36), ForeignKey("sector_recommendations.id", ondelete="CASCADE"), nullable=False)
     stock_id: Mapped[str] = mapped_column(String(36), ForeignKey("stocks.id", ondelete="RESTRICT"), nullable=False)
+    # Allowed values: 'buy' | 'sell' | 'hold' | 'stop_loss_move' | 'wait' | 'add' | 'trim'
     direction: Mapped[str] = mapped_column(String(16), nullable=False)
     logic_analysis: Mapped[Optional[str]] = mapped_column(Text)
     operation_advice: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Recommendation fields (populated by HTML report parser in Phase B)
+    priority: Mapped[Optional[str]] = mapped_column(String(20))  # '① 今日必须' | '② 关注' | '③ 等待' | '④ 持有'
+    account: Mapped[Optional[str]] = mapped_column(String(10))  # 'etoro' | 'tr' | 'both'
+    reference_price: Mapped[Optional[float]] = mapped_column(Float)
+    report_date: Mapped[Optional[date]] = mapped_column(Date, index=True)  # denormalized for fast filtering
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     sector_recommendation: Mapped["SectorRecommendation"] = relationship(back_populates="stock_cards")
     stock: Mapped["Stock"] = relationship(lazy="joined")
+    executions: Mapped[list["Execution"]] = relationship(back_populates="recommendation", cascade="all, delete-orphan")
+    simulations: Mapped[list["Simulation"]] = relationship(back_populates="recommendation", cascade="all, delete-orphan")
