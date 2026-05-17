@@ -21,6 +21,7 @@ class MorningReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     sector_recommendations: Mapped[list["SectorRecommendation"]] = relationship(back_populates="morning_report", cascade="all, delete-orphan")
+    recommendations: Mapped[list["StockCard"]] = relationship(back_populates="morning_report", cascade="all, delete-orphan")
 
 
 class SynthesisReport(Base):
@@ -58,11 +59,20 @@ class StockCard(Base):
 
     Doubles as the canonical "recommendation" entity for the trade-review
     workflow: Execution and Simulation rows in review.py reference this id.
+
+    A card can be attached to a sector_recommendation (legacy sector pick
+    grouping) and/or directly to a morning_report (flat operations-table
+    recommendation parsed from HTML upload). At least one parent should be set.
     """
     __tablename__ = "stock_cards"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    sector_recommendation_id: Mapped[str] = mapped_column(String(36), ForeignKey("sector_recommendations.id", ondelete="CASCADE"), nullable=False)
+    sector_recommendation_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("sector_recommendations.id", ondelete="CASCADE"), nullable=True, index=True,
+    )
+    morning_report_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("morning_reports.id", ondelete="CASCADE"), nullable=True, index=True,
+    )
     stock_id: Mapped[str] = mapped_column(String(36), ForeignKey("stocks.id", ondelete="RESTRICT"), nullable=False)
     # Allowed values: 'buy' | 'sell' | 'hold' | 'stop_loss_move' | 'wait' | 'add' | 'trim'
     direction: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -77,7 +87,8 @@ class StockCard(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    sector_recommendation: Mapped["SectorRecommendation"] = relationship(back_populates="stock_cards")
+    sector_recommendation: Mapped[Optional["SectorRecommendation"]] = relationship(back_populates="stock_cards")
+    morning_report: Mapped[Optional["MorningReport"]] = relationship(back_populates="recommendations")
     stock: Mapped["Stock"] = relationship(lazy="joined")
     executions: Mapped[list["Execution"]] = relationship(back_populates="recommendation", cascade="all, delete-orphan")
     simulations: Mapped[list["Simulation"]] = relationship(back_populates="recommendation", cascade="all, delete-orphan")

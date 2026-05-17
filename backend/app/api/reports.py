@@ -18,6 +18,7 @@ from app.schemas.report import (
     SynthesisReportCreate,
     SynthesisReportResponse,
 )
+from app.services.recommendation_writer import persist_recommendations
 from app.services.report import MorningReportService, SynthesisReportService
 from app.services.report_parser import parse_report
 from app.services.snapshot_writer import write_snapshot
@@ -134,17 +135,27 @@ async def upload_report(
         account_to_portfolio=mappings,
         raw_html=None,  # already backed up in morning_report.html_content
     )
+
+    persisted_recs, skipped_recs = await persist_recommendations(
+        db,
+        morning_report_id=morning.id,
+        report_date=parsed.report_date,
+        recommendations=parsed.recommendations,
+    )
+
     await db.commit()
 
-    skipped = sum(1 for h in parsed.holdings if h.account not in mappings)
+    skipped_holdings = sum(1 for h in parsed.holdings if h.account not in mappings)
     return ReportUploadResponse(
         snapshot_id=snapshot.id,
         morning_report_id=morning.id,
         report_date=parsed.report_date,
         source=snapshot.source,
-        holdings_count=len(parsed.holdings) - skipped,
+        holdings_count=len(parsed.holdings) - skipped_holdings,
         recommendations_parsed=len(parsed.recommendations),
-        skipped_holdings=skipped,
+        recommendations_persisted=persisted_recs,
+        skipped_holdings=skipped_holdings,
+        skipped_recommendations=skipped_recs,
     )
 
 

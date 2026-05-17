@@ -66,5 +66,7 @@ class ReportUploadResponse(BaseModel):
     report_date: date
     source: str
     holdings_count: int
-    recommendations_parsed: int  # parsed; not yet persisted (Phase C)
+    recommendations_parsed: int  # extracted from HTML
+    recommendations_persisted: int = 0  # written as standalone StockCard rows
     skipped_holdings: int = 0  # holdings without an account mapping
+    skipped_recommendations: int = 0  # rows where ticker couldn't be extracted

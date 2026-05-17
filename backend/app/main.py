@@ -35,7 +35,7 @@ from app.api.errors import register_error_handlers  # noqa: E402
 register_error_handlers(app)
 
 # Register routers
-from app.api import auth, stocks, portfolios, research, reports as report_routes, dashboard, simulation, broker_sync  # noqa: E402
+from app.api import auth, stocks, portfolios, research, reports as report_routes, dashboard, simulation, broker_sync, snapshots, review  # noqa: E402
 app.include_router(auth.router)
 app.include_router(stocks.router)
 app.include_router(portfolios.router)
@@ -44,6 +44,8 @@ app.include_router(report_routes.router)
 app.include_router(dashboard.router)
 app.include_router(simulation.router)
 app.include_router(broker_sync.router)
+app.include_router(snapshots.router)
+app.include_router(review.router)
 
 
 @app.get("/api/v1/health")

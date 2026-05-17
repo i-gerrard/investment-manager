@@ -5,9 +5,11 @@ Called by both broker_sync ingest and HTML report upload. Guarantees:
 - old holdings under that snapshot are wiped and re-inserted from the new payload
 - ticker rows are created in `stocks` table on demand
 
-NOTE: market_value_usd column is populated with the NATIVE currency value
-(USD for eToro, EUR for TR) for Phase B. The column name is a historical
-misnomer; the snapshot's eur_usd_rate lets consumers normalize at read time.
+market_value_usd is stored normalized to USD: TR (EUR) holdings are
+converted using the snapshot's eur_usd_rate. When that rate is unknown
+(e.g. broker_sync alone with no prior HTML upload), TR market_value_usd
+is left NULL until a later writer enriches the rate.
+avg_cost and current_price remain in the holding's native currency.
 """
 
 from __future__ import annotations
@@ -26,6 +28,21 @@ from app.services.stock import StockService
 logger = logging.getLogger(__name__)
 
 _stock_service = StockService()
+
+
+def _to_usd(h: ParsedHolding, eur_usd_rate: Optional[float]) -> Optional[float]:
+    """Convert a parsed holding's market_value to USD.
+    eToro (USD): pass-through. TR (EUR): multiply by rate, or None if rate unknown.
+    """
+    if h.market_value is None:
+        return None
+    if h.currency == "USD" or h.account == "etoro":
+        return h.market_value
+    if h.currency == "EUR" or h.account == "tr":
+        if eur_usd_rate is None:
+            return None
+        return h.market_value * eur_usd_rate
+    return h.market_value  # unknown currency: pass through
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -82,11 +99,16 @@ async def write_snapshot(
         wipe = wipe.where(Holding.account.in_(list(replace_accounts)))
     await db.execute(wipe)
 
-    # Pre-compute per-account total market value for position_percent
-    account_totals: dict[str, float] = {}
+    eur_usd = snapshot.eur_usd_rate  # may be None for broker_sync-only days
+
+    # Pre-compute per-account total USD market value for position_percent.
+    # Per-account share uses USD-normalized totals so % is comparable across
+    # the snapshot.
+    account_totals_usd: dict[str, float] = {}
     for h in holdings:
-        if h.market_value is not None:
-            account_totals[h.account] = account_totals.get(h.account, 0.0) + h.market_value
+        mv_usd = _to_usd(h, eur_usd)
+        if mv_usd is not None:
+            account_totals_usd[h.account] = account_totals_usd.get(h.account, 0.0) + mv_usd
 
     skipped = 0
     for h in holdings:
@@ -99,10 +121,11 @@ async def write_snapshot(
 
         stock = await _stock_service.ensure_stock(db, ticker=h.ticker, name=h.display_name)
 
+        mv_usd = _to_usd(h, eur_usd)
         pct: Optional[float] = None
-        total = account_totals.get(h.account)
-        if h.market_value is not None and total:
-            pct = round(h.market_value / total * 100, 2)
+        total = account_totals_usd.get(h.account)
+        if mv_usd is not None and total:
+            pct = round(mv_usd / total * 100, 2)
 
         db.add(Holding(
             portfolio_id=portfolio_id,
@@ -112,9 +135,9 @@ async def write_snapshot(
             snapshot_date=report_date,
             account=h.account,
             shares=h.shares,
-            avg_cost=h.avg_cost,
-            current_price=h.current_price,
-            market_value_usd=h.market_value,  # native-currency value; see module docstring
+            avg_cost=h.avg_cost,  # native currency
+            current_price=h.current_price,  # native currency
+            market_value_usd=mv_usd,  # USD-normalized
             pnl_total_usd=None,  # not extracted in Phase B
             pnl_total_pct=h.pnl_total_pct,
             pnl_day_pct=h.pnl_day_pct,
