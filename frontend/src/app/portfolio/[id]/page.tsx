@@ -47,8 +47,8 @@ export default function PortfolioDetailPage() {
                 <tr key={h.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 text-sm font-medium">{h.ticker}</td>
                   <td className="px-6 py-4 text-sm text-gray-600">{h.stock?.name ?? "-"}</td>
-                  <td className="px-6 py-4 text-sm text-right">{Number(h.cost_basis).toFixed(2)}</td>
-                  <td className="px-6 py-4 text-sm text-right">{Number(h.position_percent).toFixed(1)}%</td>
+                  <td className="px-6 py-4 text-sm text-right">{h.avg_cost != null ? Number(h.avg_cost).toFixed(2) : "—"}</td>
+                  <td className="px-6 py-4 text-sm text-right">{h.position_percent != null ? Number(h.position_percent).toFixed(1) + "%" : "—"}</td>
                   <td className="px-6 py-4 text-sm text-right text-gray-400">{h.entry_date ?? "-"}</td>
                 </tr>
               ))

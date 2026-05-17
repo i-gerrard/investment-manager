@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     # Use SQLite for local dev; set DATABASE_URL env var for PostgreSQL
     DATABASE_URL: str = f"sqlite+aiosqlite:///{_DEFAULT_DB}"
     SECRET_KEY: str = "dev-secret-change-in-production"
-    CORS_ORIGINS: str = "http://localhost:3000"
+    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
     API_V1_PREFIX: str = "/api/v1"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
 

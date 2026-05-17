@@ -9,3 +9,6 @@ pgdata/
 venv/
 investr.db
 frontend/next-env.d.ts
+frontend/tsconfig.tsbuildinfo
+.playwright-mcp/
+snapshots-page-validated.png

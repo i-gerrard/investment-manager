@@ -25,11 +25,81 @@ export interface Holding {
   portfolio_id: string;
   stock_id: string;
   ticker: string;
-  cost_basis: number;
-  position_percent: number;
+  avg_cost?: number;
+  position_percent?: number;
+  // Snapshot dimension (populated for snapshot-ingested rows)
+  snapshot_id?: string;
+  snapshot_date?: string;
+  account?: "etoro" | "tr" | "manual";
+  shares?: number;
+  current_price?: number;
+  market_value_usd?: number;
+  pnl_total_pct?: number;
+  pnl_day_pct?: number;
+  verdict?: "buy" | "hold" | "sell";
   entry_date?: string;
   notes?: string;
   stock?: Stock;
+}
+
+// ── Snapshot APIs (Phase C) ──
+
+export interface SnapshotListItem {
+  id: string;
+  report_date: string;
+  source: "broker_sync" | "report_upload" | "manual";
+  combined_total_usd: number | null;
+  combined_cash_usd: number | null;
+  cash_ratio_pct: number | null;
+  holdings_count: number;
+  created_at: string;
+}
+
+export interface SnapshotDetail {
+  id: string;
+  user_id: string;
+  report_date: string;
+  source: string;
+  etoro_total_usd: number | null;
+  etoro_cash_usd: number | null;
+  etoro_invested_usd: number | null;
+  etoro_pnl_day_usd: number | null;
+  tr_total_eur: number | null;
+  tr_cash_eur: number | null;
+  tr_invested_eur: number | null;
+  tr_pnl_day_eur: number | null;
+  eur_usd_rate: number | null;
+  combined_total_usd: number | null;
+  combined_cash_usd: number | null;
+  cash_ratio_pct: number | null;
+  holdings_count: number;
+  created_at: string;
+}
+
+export interface HoldingSnapshotRow {
+  id: string;
+  ticker: string;
+  account: "etoro" | "tr" | "manual" | null;
+  shares: number | null;
+  avg_cost: number | null;
+  current_price: number | null;
+  market_value_usd: number | null;
+  pnl_total_pct: number | null;
+  pnl_day_pct: number | null;
+  position_percent: number | null;
+  verdict: string | null;
+}
+
+export interface ReportUploadResponse {
+  snapshot_id: string;
+  morning_report_id: string;
+  report_date: string;
+  source: string;
+  holdings_count: number;
+  recommendations_parsed: number;
+  recommendations_persisted: number;
+  skipped_holdings: number;
+  skipped_recommendations: number;
 }
 
 export interface ResearchReport {
