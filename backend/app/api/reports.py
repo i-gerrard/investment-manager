@@ -1,20 +1,26 @@
 from typing import Optional, Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.database import get_db
+from app.models.broker_sync import BrokerPortfolioMapping
 from app.models.report import MorningReport, SynthesisReport
 from app.models.user import User
 from app.schemas.report import (
     MorningReportCreate,
     MorningReportListResponse,
     MorningReportResponse,
+    ReportUploadRequest,
+    ReportUploadResponse,
     SynthesisReportCreate,
     SynthesisReportResponse,
 )
 from app.services.report import MorningReportService, SynthesisReportService
+from app.services.report_parser import parse_report
+from app.services.snapshot_writer import write_snapshot
 
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
 morning_service = MorningReportService()
@@ -85,3 +91,83 @@ async def create_synthesis_report(
 async def get_synthesis_report(report_id: str, db: Annotated[AsyncSession, Depends(get_db)]):
     report = await synthesis_service.base.get_or_404(db, SynthesisReport.id == report_id)
     return SynthesisReportResponse.model_validate(report)
+
+
+# ── HTML Report Upload (Phase B) ──
+
+@router.post("/upload", response_model=ReportUploadResponse, status_code=status.HTTP_201_CREATED)
+async def upload_report(
+    body: ReportUploadRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Parse a us-stock-report HTML and persist as a daily snapshot.
+
+    Idempotent on (user_id, report_date): re-uploading the same date replaces
+    the snapshot's holdings and refreshes the MorningReport HTML backup.
+    Recommendations are parsed but not yet persisted (Phase C).
+    """
+    parsed = parse_report(body.html, report_date=body.report_date)
+    if parsed.report_date is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Could not determine report_date from HTML; supply it explicitly.",
+        )
+
+    mappings = await _resolve_account_mappings(db, current_user.id)
+    if not mappings:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No broker portfolio mappings configured. "
+                   "Create them via POST /api/v1/broker-sync/mappings first.",
+        )
+
+    morning = await _upsert_morning_report(db, parsed.report_date, body.html)
+
+    snapshot = await write_snapshot(
+        db,
+        user_id=current_user.id,
+        report_date=parsed.report_date,
+        source="report_upload",
+        summary=parsed.summary,
+        holdings=parsed.holdings,
+        account_to_portfolio=mappings,
+        raw_html=None,  # already backed up in morning_report.html_content
+    )
+    await db.commit()
+
+    skipped = sum(1 for h in parsed.holdings if h.account not in mappings)
+    return ReportUploadResponse(
+        snapshot_id=snapshot.id,
+        morning_report_id=morning.id,
+        report_date=parsed.report_date,
+        source=snapshot.source,
+        holdings_count=len(parsed.holdings) - skipped,
+        recommendations_parsed=len(parsed.recommendations),
+        skipped_holdings=skipped,
+    )
+
+
+# ── Upload helpers ──
+
+async def _resolve_account_mappings(db: AsyncSession, user_id: str) -> dict[str, str]:
+    """Build {'etoro': portfolio_id, 'tr': portfolio_id} from BrokerPortfolioMapping."""
+    result = await db.execute(
+        select(BrokerPortfolioMapping).where(BrokerPortfolioMapping.user_id == user_id)
+    )
+    return {m.broker: m.portfolio_id for m in result.scalars().all()}
+
+
+async def _upsert_morning_report(db: AsyncSession, report_date, html: str) -> MorningReport:
+    """Find-or-create MorningReport for a date; refresh html_content on conflict."""
+    existing = (await db.execute(
+        select(MorningReport).where(MorningReport.report_date == report_date)
+    )).scalar_one_or_none()
+    if existing:
+        existing.html_content = html
+        await db.flush()
+        return existing
+    mr = MorningReport(report_date=report_date, html_content=html)
+    db.add(mr)
+    await db.flush()
+    return mr

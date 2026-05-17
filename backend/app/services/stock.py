@@ -43,3 +43,20 @@ class StockService:
             select(Stock).where(Stock.ticker == ticker, Stock.market == market)
         )
         return result.scalar_one_or_none()
+
+    async def ensure_stock(
+        self, db: AsyncSession, *, ticker: str, name: str | None = None, market: str = "US"
+    ) -> Stock:
+        """Look up Stock by (ticker, market); create a minimal row if missing.
+        Used by ingest paths (broker_sync, report_upload) that may encounter
+        tickers not yet tracked.
+        """
+        result = await db.execute(
+            select(Stock).where(Stock.ticker == ticker, Stock.market == market)
+        )
+        stock = result.scalar_one_or_none()
+        if not stock:
+            stock = Stock(ticker=ticker, name=name or ticker, market=market)
+            db.add(stock)
+            await db.flush()
+        return stock

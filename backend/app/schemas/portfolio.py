@@ -5,15 +5,17 @@ from pydantic import BaseModel, Field
 
 class HoldingCreate(BaseModel):
     stock_id: str
-    cost_basis: float = Field(ge=0)
+    avg_cost: float = Field(ge=0)
     position_percent: float = Field(ge=0, le=100)
+    shares: Optional[float] = Field(default=None, ge=0)
     entry_date: Optional[date] = None
     notes: Optional[str] = None
 
 
 class HoldingUpdate(BaseModel):
-    cost_basis: Optional[float] = Field(default=None, ge=0)
+    avg_cost: Optional[float] = Field(default=None, ge=0)
     position_percent: Optional[float] = Field(default=None, ge=0, le=100)
+    shares: Optional[float] = Field(default=None, ge=0)
     entry_date: Optional[date] = None
     notes: Optional[str] = None
 
@@ -33,8 +35,19 @@ class HoldingResponse(BaseModel):
     portfolio_id: str
     stock_id: str
     ticker: str
-    cost_basis: float
-    position_percent: float
+    avg_cost: Optional[float] = None
+    position_percent: Optional[float] = None
+    # Snapshot dimension (populated for rows ingested via snapshot_writer)
+    snapshot_id: Optional[str] = None
+    snapshot_date: Optional[date] = None
+    account: Optional[str] = None
+    shares: Optional[float] = None
+    current_price: Optional[float] = None
+    market_value_usd: Optional[float] = None
+    pnl_total_pct: Optional[float] = None
+    pnl_day_pct: Optional[float] = None
+    verdict: Optional[str] = None
+    # Misc
     entry_date: Optional[date] = None
     notes: Optional[str] = None
     stock: Optional[StockBrief] = None

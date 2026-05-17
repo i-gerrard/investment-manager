@@ -12,7 +12,7 @@ import asyncio
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -23,8 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.broker_sync import BrokerPortfolioMapping, BrokerSyncLog
-from app.models.portfolio import Holding, Portfolio
-from app.models.stock import Stock
+from app.models.portfolio import Portfolio
 from app.models.user import User
 from app.schemas.broker_sync import (
     BrokerIngestRequest,
@@ -33,6 +32,8 @@ from app.schemas.broker_sync import (
     BrokerSyncLogResponse,
     BrokerSyncStatusResponse,
 )
+from app.services.report_parser import ParsedAccountSummary, ParsedHolding
+from app.services.snapshot_writer import write_snapshot
 
 router = APIRouter(prefix="/api/v1/broker-sync", tags=["broker-sync"])
 
@@ -61,14 +62,39 @@ async def _last_log(broker: str, db: AsyncSession) -> Optional[BrokerSyncLog]:
     return result.scalar_one_or_none()
 
 
-async def _ensure_stock(ticker: str, name: str, db: AsyncSession) -> Stock:
-    result = await db.execute(select(Stock).where(Stock.ticker == ticker))
-    stock = result.scalar_one_or_none()
-    if not stock:
-        stock = Stock(ticker=ticker, name=name, market="US")
-        db.add(stock)
-        await db.flush()
-    return stock
+def _build_account_summary(broker: str, positions: list) -> ParsedAccountSummary:
+    """Derive minimal account-level totals from a single broker's positions.
+
+    Broker_sync only captures positions, not cash/total/rate, so most snapshot
+    summary fields are left None. The HTML report upload path enriches the
+    same snapshot when both run on the same day.
+    """
+    invested = sum(p.market_value for p in positions if p.market_value is not None)
+    summary = ParsedAccountSummary()
+    if broker == "etoro":
+        summary.etoro_invested_usd = invested or None
+    elif broker == "tr":
+        summary.tr_invested_eur = invested or None
+    return summary
+
+
+def _broker_positions_to_holdings(broker: str, positions: list) -> list[ParsedHolding]:
+    currency = "USD" if broker == "etoro" else "EUR"
+    return [
+        ParsedHolding(
+            account=broker,
+            ticker=p.ticker.upper(),
+            display_name=p.name or p.ticker,
+            currency=currency,
+            shares=p.quantity,
+            avg_cost=p.avg_cost or p.current_price,
+            current_price=p.current_price,
+            market_value=p.market_value,
+            pnl_total_pct=p.pnl_pct,
+            pnl_day_pct=None,
+        )
+        for p in positions
+    ]
 
 
 # ── Portfolio mapping ─────────────────────────────────────────────────────────
@@ -138,8 +164,9 @@ async def ingest_positions(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Receive scraped positions from sync_brokers.py and update Holdings.
+    """Receive scraped positions from sync_brokers.py and persist as today's
+    snapshot. Uses snapshot_writer so HTML report uploads on the same date
+    can enrich the same row.
     """
     log = BrokerSyncLog(
         broker=body.broker,
@@ -165,41 +192,18 @@ async def ingest_positions(
 
     log.portfolio_id = portfolio_id
 
-    # Calculate total portfolio value for position_percent
-    total_value = sum(p.market_value for p in body.positions) or 1.0
-
-    synced = 0
     try:
-        # Remove old holdings for this portfolio (full replace strategy)
-        existing = await db.execute(
-            select(Holding).where(Holding.portfolio_id == portfolio_id)
+        snapshot = await write_snapshot(
+            db,
+            user_id=user.id,
+            report_date=date.today(),
+            source="broker_sync",
+            summary=_build_account_summary(body.broker, body.positions),
+            holdings=_broker_positions_to_holdings(body.broker, body.positions),
+            account_to_portfolio={body.broker: portfolio_id},
+            replace_accounts={body.broker},  # don't clobber the other broker's holdings
         )
-        for h in existing.scalars().all():
-            await db.delete(h)
-        await db.flush()
-
-        for pos in body.positions:
-            ticker = pos.ticker.upper()
-            stock = await _ensure_stock(ticker, pos.name, db)
-            holding = Holding(
-                portfolio_id=portfolio_id,
-                stock_id=stock.id,
-                ticker=ticker,
-                cost_basis=pos.avg_cost or pos.current_price,
-                position_percent=round(pos.market_value / total_value * 100, 2),
-                notes=json.dumps({
-                    "quantity": pos.quantity,
-                    "current_price": pos.current_price,
-                    "market_value": pos.market_value,
-                    "pnl_pct": pos.pnl_pct,
-                    "currency": pos.currency,
-                    "synced_from": body.broker,
-                }),
-            )
-            db.add(holding)
-            synced += 1
-
-        log.positions_synced = synced
+        log.positions_synced = len(body.positions)
         log.status = "success"
     except Exception as exc:
         log.status = "failed"

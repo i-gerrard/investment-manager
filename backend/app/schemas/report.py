@@ -51,3 +51,20 @@ class SynthesisReportResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ── Report upload (HTML → snapshot) ──
+
+class ReportUploadRequest(BaseModel):
+    html: str = Field(min_length=100)
+    report_date: Optional[date] = None  # override if HTML doesn't contain it
+
+
+class ReportUploadResponse(BaseModel):
+    snapshot_id: str
+    morning_report_id: str
+    report_date: date
+    source: str
+    holdings_count: int
+    recommendations_parsed: int  # parsed; not yet persisted (Phase C)
+    skipped_holdings: int = 0  # holdings without an account mapping

@@ -408,19 +408,24 @@ async def compare_with_real(
     real_return_pct: Optional[float] = None
 
     if real_holdings:
-        total_cost = sum(h.cost_basis * (h.position_percent / 100) for h in real_holdings)
+        # Skip rows missing avg_cost/position_percent (manual holdings or
+        # partial snapshot ingests can have these as NULL).
+        priced_holdings = [
+            h for h in real_holdings if h.avg_cost is not None and h.position_percent is not None
+        ]
+        total_cost = sum(h.avg_cost * (h.position_percent / 100) for h in priced_holdings)
         total_current = 0.0
-        for h in real_holdings:
+        for h in priced_holdings:
             current = prices.get(h.ticker)
             weight = h.position_percent / 100
-            cost = h.cost_basis * weight
-            unrealized = (current - h.cost_basis) * weight if current else None
-            pnl_pct = ((current - h.cost_basis) / h.cost_basis * 100) if current else None
+            cost = h.avg_cost * weight
+            unrealized = (current - h.avg_cost) * weight if current else None
+            pnl_pct = ((current - h.avg_cost) / h.avg_cost * 100) if current else None
             total_current += (current * weight) if current else cost
             holding_snapshots.append(
                 HoldingSnapshot(
                     ticker=h.ticker,
-                    cost_basis=h.cost_basis,
+                    cost_basis=h.avg_cost,
                     current_price=current,
                     position_percent=h.position_percent,
                     unrealized_pnl=unrealized,
