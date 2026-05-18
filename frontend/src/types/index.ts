@@ -102,6 +102,95 @@ export interface ReportUploadResponse {
   skipped_recommendations: number;
 }
 
+// ── Review APIs (Phase C) ──
+
+export type ExecutionStatus = "executed" | "skipped" | "partial";
+export type SkipReason = "forgot" | "disagreed" | "no_cash" | "waiting_better_price" | "other";
+
+export interface StockBrief {
+  id: string;
+  ticker: string;
+  name: string;
+}
+
+export interface RecommendationListItem {
+  id: string;
+  ticker: string;
+  direction: string;
+  priority: string | null;
+  account: string | null;
+  reference_price: number | null;
+  report_date: string | null;
+  operation_advice: string | null;
+  has_execution: boolean;
+  execution_status: ExecutionStatus | null;
+  stock: StockBrief | null;
+}
+
+export interface ExecutionRead {
+  id: string;
+  status: ExecutionStatus;
+  actual_price: number | null;
+  actual_shares: number | null;
+  execution_date: string | null;
+  skip_reason: SkipReason | null;
+  skip_note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SimulationRead {
+  id: string;
+  sim_entry_price: number;
+  sim_entry_date: string;
+  sim_entry_shares: number;
+  sim_exit_price: number | null;
+  sim_exit_date: string | null;
+  sim_pnl_usd: number | null;
+  sim_pnl_pct: number | null;
+  actual_pnl_usd: number | null;
+  regret_usd: number | null;
+  created_at: string;
+}
+
+export interface RecommendationDetail {
+  id: string;
+  morning_report_id: string | null;
+  sector_recommendation_id: string | null;
+  ticker: string;
+  direction: string;
+  priority: string | null;
+  account: string | null;
+  reference_price: number | null;
+  report_date: string | null;
+  logic_analysis: string | null;
+  operation_advice: string | null;
+  created_at: string;
+  stock: StockBrief | null;
+  executions: ExecutionRead[];
+  simulations: SimulationRead[];
+}
+
+export interface ReviewStats {
+  total: number;
+  executed: number;
+  skipped: number;
+  pending: number;
+  execution_rate_pct: number | null;
+  avg_sim_pnl_pct: number | null;
+  avg_regret_usd: number | null;
+}
+
+export interface RegretItem {
+  recommendation_id: string;
+  ticker: string;
+  report_date: string | null;
+  skip_reason: SkipReason | null;
+  sim_pnl_usd: number | null;
+  sim_pnl_pct: number | null;
+  regret_usd: number | null;
+}
+
 export interface ResearchReport {
   id: string;
   stock_id: string;

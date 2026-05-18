@@ -7,6 +7,7 @@ const navItems = [
   { href: "/", label: "Dashboard", icon: "□" },
   { href: "/portfolio", label: "Portfolios", icon: "⊞" },
   { href: "/portfolio/snapshots", label: "Snapshots", icon: "▣" },
+  { href: "/review", label: "Review", icon: "✓" },
   { href: "/stocks", label: "Stocks", icon: "⊡" },
   { href: "/research", label: "Research", icon: "⊕" },
   { href: "/reports/morning", label: "Reports", icon: "⊟" },
