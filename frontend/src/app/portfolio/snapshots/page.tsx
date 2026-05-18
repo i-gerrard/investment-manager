@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { useGet } from "@/lib/useApi";
 import type {
@@ -12,6 +13,7 @@ import type {
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import ErrorAlert from "@/components/ui/ErrorAlert";
 import EmptyState from "@/components/ui/EmptyState";
+import TickerHistoryChart from "@/components/charts/TickerHistoryChart";
 
 type AccountFilter = "all" | "etoro" | "tr";
 
@@ -54,7 +56,12 @@ export default function SnapshotsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Portfolio Snapshots</h1>
+      <div className="flex items-baseline justify-between">
+        <h1 className="text-2xl font-bold">Portfolio Snapshots</h1>
+        <Link href="/portfolio/snapshots/compare" className="text-sm text-primary hover:underline">
+          → Compare two dates
+        </Link>
+      </div>
 
       <UploadCard
         html={html}
@@ -179,6 +186,8 @@ function SnapshotView({
   const { data: holdings, loading: hLoading, error: hError } =
     useGet<HoldingSnapshotRow[]>(holdingsPath, [date, accountFilter]);
 
+  const [historyTicker, setHistoryTicker] = useState<string | null>(null);
+
   return (
     <>
       <SummaryCard detail={detail} loading={dLoading} error={dError} />
@@ -206,10 +215,28 @@ function SnapshotView({
         {hLoading ? <LoadingSpinner /> :
          hError ? <ErrorAlert message={hError} /> :
          !holdings?.length ? <EmptyState message="No holdings for this filter." /> : (
-          <HoldingsTable holdings={holdings} />
+          <HoldingsTable holdings={holdings} onRowClick={(ticker) => setHistoryTicker(ticker)} />
         )}
       </div>
+
+      {historyTicker && (
+        <HistoryModal ticker={historyTicker} onClose={() => setHistoryTicker(null)} />
+      )}
     </>
+  );
+}
+
+function HistoryModal({ ticker, onClose }: { ticker: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-lg max-w-3xl w-full mx-4 p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-semibold text-primary">{ticker} — history</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+        </div>
+        <TickerHistoryChart ticker={ticker} />
+      </div>
+    </div>
   );
 }
 
@@ -254,7 +281,7 @@ function Metric({ label, value, accent }: { label: string; value: string; accent
   );
 }
 
-function HoldingsTable({ holdings }: { holdings: HoldingSnapshotRow[] }) {
+function HoldingsTable({ holdings, onRowClick }: { holdings: HoldingSnapshotRow[]; onRowClick: (ticker: string) => void }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -273,8 +300,11 @@ function HoldingsTable({ holdings }: { holdings: HoldingSnapshotRow[] }) {
         </thead>
         <tbody>
           {holdings.map((h) => (
-            <tr key={h.id} className="border-b border-gray-100 hover:bg-gray-50">
-              <td className="py-1.5 pr-4 font-medium">{h.ticker}</td>
+            <tr key={h.id}
+                onClick={() => onRowClick(h.ticker)}
+                className="border-b border-gray-100 hover:bg-primary/5 cursor-pointer"
+                title="Click to see this ticker's history">
+              <td className="py-1.5 pr-4 font-medium text-primary">{h.ticker}</td>
               <td className="py-1.5 pr-4 text-gray-500">{h.account ?? "—"}</td>
               <td className="py-1.5 pr-4 text-right">{fmtNum(h.shares, 3)}</td>
               <td className="py-1.5 pr-4 text-right">{fmtNum(h.avg_cost)}</td>

@@ -4,6 +4,7 @@ import { useGet } from "@/lib/useApi";
 import Link from "next/link";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import ErrorAlert from "@/components/ui/ErrorAlert";
+import PortfolioSummaryChart from "@/components/charts/PortfolioSummaryChart";
 
 interface DashboardData {
   portfolios: { id: string; name: string; holding_count: number }[];
@@ -19,8 +20,19 @@ export default function Dashboard() {
   if (!data) return null;
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold">Dashboard</h1>
+
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="flex items-baseline justify-between mb-2">
+          <h2 className="text-lg font-semibold text-primary">Net value trend</h2>
+          <Link href="/portfolio/snapshots" className="text-xs text-primary hover:underline">
+            → Snapshots
+          </Link>
+        </div>
+        <PortfolioSummaryChart days={90} />
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold text-primary mb-3">Portfolios</h2>

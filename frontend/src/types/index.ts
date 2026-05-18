@@ -90,6 +90,51 @@ export interface HoldingSnapshotRow {
   verdict: string | null;
 }
 
+export interface HoldingDiff {
+  ticker: string;
+  account: string | null;
+  change_type: "added" | "removed" | "changed" | "unchanged";
+  from_shares: number | null;
+  to_shares: number | null;
+  shares_delta: number | null;
+  from_market_value_usd: number | null;
+  to_market_value_usd: number | null;
+  value_delta_usd: number | null;
+  from_pnl_pct: number | null;
+  to_pnl_pct: number | null;
+}
+
+export interface SnapshotCompare {
+  from_date: string;
+  to_date: string;
+  from_total_usd: number | null;
+  to_total_usd: number | null;
+  total_delta_usd: number | null;
+  from_cash_usd: number | null;
+  to_cash_usd: number | null;
+  cash_delta_usd: number | null;
+  holdings: HoldingDiff[];
+}
+
+export interface HoldingHistoryPoint {
+  report_date: string;
+  account: string | null;
+  shares: number | null;
+  avg_cost: number | null;
+  current_price: number | null;
+  market_value_usd: number | null;
+  pnl_total_pct: number | null;
+}
+
+export interface PortfolioSummaryPoint {
+  report_date: string;
+  combined_total_usd: number | null;
+  combined_cash_usd: number | null;
+  cash_ratio_pct: number | null;
+  etoro_total_usd: number | null;
+  tr_total_eur: number | null;
+}
+
 export interface ReportUploadResponse {
   snapshot_id: string;
   morning_report_id: string;
