@@ -158,7 +158,38 @@ def _map_tr_ticker(name: str) -> str:
 
 # ── Section parsers ──────────────────────────────────────────────────────────
 
+def _parse_eur_usd_rate(soup: BeautifulSoup) -> Optional[float]:
+    """Find the EUR/USD rate anywhere in the document.
+
+    Accepted phrasings:
+      "1 EUR = 1.1624 USD"
+      "1 EUR = $1.1767 USD"            (old fx-banner format)
+      "EUR/USD ≈ 1.1624"
+      "EUR/USD 1.1790"                 (mid-format combined-total)
+    """
+    # Limit scan to the document head + first ~3000 chars where the banner /
+    # subtitle lives, so we don't accidentally match unrelated numbers later.
+    text = soup.get_text(" ", strip=True)[:3000]
+    patterns = [
+        r"1\s*EUR\s*=\s*\$?([\d.]+)\s*USD",
+        r"EUR/USD[^\d]*([\d.]+)",
+    ]
+    for pat in patterns:
+        m = re.search(pat, text)
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:
+                continue
+    return None
+
+
 def _parse_combined_total(soup: BeautifulSoup, summary: ParsedAccountSummary) -> None:
+    # Rate can come from outside the combined-total block (old fx-banner).
+    rate = _parse_eur_usd_rate(soup)
+    if rate is not None:
+        summary.eur_usd_rate = rate
+
     block = soup.select_one(".combined-total")
     if not block:
         logger.warning("No .combined-total block found")
@@ -170,16 +201,6 @@ def _parse_combined_total(soup: BeautifulSoup, summary: ParsedAccountSummary) ->
         summary.combined_total_usd = _parse_number(big.get_text())
 
     text = block.get_text(" ", strip=True)
-    # "1 EUR = 1.1624 USD" or "EUR/USD ≈ 1.1624" or "(EUR/USD 1.1790)"
-    eur_match = re.search(r"1\s*EUR\s*=\s*([\d.]+)\s*USD", text)
-    if not eur_match:
-        eur_match = re.search(r"EUR/USD[^\d]*([\d.]+)", text)
-    if eur_match:
-        try:
-            summary.eur_usd_rate = float(eur_match.group(1))
-        except ValueError:
-            pass
-
     # Cash: latest "现金 $24,420 (8.92% ...)" has ratio in parens.
     # Mid-format "现金 $18,454 <span class="cash-ratio-badge">6.70% 偏低</span>"
     # puts the ratio in a sibling span. Try inline first, then DOM-based.
@@ -206,12 +227,15 @@ def _parse_account_box(box: Tag) -> tuple[str, dict[str, Optional[float]], list[
     """Parse one .account-box → (account_code, totals_dict, holdings).
     account_code: 'etoro' | 'tr' | 'unknown'.
     """
+    # Latest reports label the account with <h3>; older 4/24-style reports
+    # use a styled <div> instead. Fall back to the first ~80 chars of the box.
     h3 = box.find("h3")
-    header = h3.get_text(strip=True) if h3 else ""
-    if "etoro" in header.lower():
+    header = h3.get_text(strip=True) if h3 else box.get_text(" ", strip=True)[:80]
+    lo = header.lower()
+    if "etoro" in lo:
         account = "etoro"
         currency = "USD"
-    elif "trade republic" in header.lower() or "tr" in header.lower():
+    elif "trade republic" in lo or lo.startswith("tr") or " tr" in lo:
         account = "tr"
         currency = "EUR"
     else:
@@ -221,10 +245,15 @@ def _parse_account_box(box: Tag) -> tuple[str, dict[str, Optional[float]], list[
     totals: dict[str, Optional[float]] = {}
 
     # Total: latest uses .account-total div; mid-format uses .kpi-row with
-    # an item labelled "总净值".
+    # an item labelled "总净值"; old format (4/13-5/05) uses a bare .total
+    # descendant inside the account-box.
     total_el = box.select_one(".account-total")
     if total_el:
         totals["total"] = _parse_number(total_el.get_text())
+    else:
+        total_el = box.select_one(".total")
+        if total_el:
+            totals["total"] = _parse_number(total_el.get_text())
 
     # KPI row (mid-format): items with .label "总净值"/"今日 P&L"/"累计盈亏"/...
     for kpi in box.select(".kpi"):
@@ -255,6 +284,15 @@ def _parse_account_box(box: Tag) -> tuple[str, dict[str, Optional[float]], list[
             totals["pnl_day"] = value
         # "累计 P&L" / "累计盈亏" are cumulative — not in snapshot schema, ignore
 
+    # Old format buries cash inside free-text like
+    # "16 只持仓 · 现金 €5,365 · 等值约 $159,603". Fall back to text regex
+    # when no cash-row was found.
+    if totals.get("cash") is None:
+        sym = "€" if account == "tr" else "\\$"
+        m = re.search(rf"现金\s*{sym}?\s*([\d,]+(?:\.\d+)?)", box.get_text(" ", strip=True))
+        if m:
+            totals["cash"] = _parse_number(m.group(1))
+
     holdings = _parse_holdings_table(box, account, currency)
     return account, totals, holdings
 
@@ -262,11 +300,13 @@ def _parse_account_box(box: Tag) -> tuple[str, dict[str, Optional[float]], list[
 def _parse_holdings_table(box: Tag, account: str, currency: str) -> list[ParsedHolding]:
     """Parse the <table> inside an account-box. Schema differs between
     eToro (7 cols: ticker/price/day%/shares/avg/pnl%/value) and
-    TR (4 cols: name/shares/value/since_buy_pct).
+    TR (4 cols: name/shares/value/since_buy_pct). Older "weekly analysis"
+    reports omit the table entirely — callers still get the account-level
+    totals, just an empty holdings list.
     """
     table = box.find("table")
     if not table:
-        logger.warning("No holdings table in %s account-box", account)
+        logger.info("No holdings table in %s account-box (likely a pre-position-table report)", account)
         return []
 
     rows = table.find_all("tr")
@@ -518,6 +558,10 @@ def parse_report(html: str, *, report_date: Optional[date] = None,
             summary.tr_pnl_day_eur = totals.get("pnl_day")
         holdings.extend(box_holdings)
 
+    # Derive cross-account fields when the .combined-total block is missing
+    # (old format) but per-account totals were extracted.
+    _backfill_combined_from_accounts(summary)
+
     recommendations = _parse_recommendations(soup)
 
     final_date = report_date or _extract_report_date(soup, fallback_filename)
@@ -530,3 +574,25 @@ def parse_report(html: str, *, report_date: Optional[date] = None,
         holdings=holdings,
         recommendations=recommendations,
     )
+
+
+def _backfill_combined_from_accounts(s: ParsedAccountSummary) -> None:
+    """When .combined-total wasn't found but per-account totals are known,
+    compute combined_total / combined_cash / cash_ratio so the dashboard
+    can still show meaningful numbers for old-format reports.
+    """
+    rate = s.eur_usd_rate
+    # combined_total_usd
+    if s.combined_total_usd is None and s.etoro_total_usd is not None:
+        tr_usd = (s.tr_total_eur * rate) if (s.tr_total_eur is not None and rate is not None) else 0.0
+        if s.tr_total_eur is None or rate is not None:
+            s.combined_total_usd = s.etoro_total_usd + tr_usd
+    # combined_cash_usd
+    if s.combined_cash_usd is None and s.etoro_cash_usd is not None:
+        tr_cash_usd = (s.tr_cash_eur * rate) if (s.tr_cash_eur is not None and rate is not None) else 0.0
+        if s.tr_cash_eur is None or rate is not None:
+            s.combined_cash_usd = s.etoro_cash_usd + tr_cash_usd
+    # cash_ratio_pct
+    if (s.cash_ratio_pct is None and s.combined_cash_usd is not None
+            and s.combined_total_usd and s.combined_total_usd > 0):
+        s.cash_ratio_pct = round(s.combined_cash_usd / s.combined_total_usd * 100, 2)
