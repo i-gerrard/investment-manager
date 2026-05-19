@@ -164,22 +164,25 @@ def _parse_combined_total(soup: BeautifulSoup, summary: ParsedAccountSummary) ->
         logger.warning("No .combined-total block found")
         return
 
-    big = block.select_one(".big")
+    # Total: latest uses .big, mid-format (2026-05-06..10) uses .big-num
+    big = block.select_one(".big") or block.select_one(".big-num")
     if big:
         summary.combined_total_usd = _parse_number(big.get_text())
 
     text = block.get_text(" ", strip=True)
-    # "1 EUR = 1.1624 USD" or "EUR/USD ≈ 1.1624"
+    # "1 EUR = 1.1624 USD" or "EUR/USD ≈ 1.1624" or "(EUR/USD 1.1790)"
     eur_match = re.search(r"1\s*EUR\s*=\s*([\d.]+)\s*USD", text)
     if not eur_match:
-        eur_match = re.search(r"EUR/USD[^\d]+([\d.]+)", text)
+        eur_match = re.search(r"EUR/USD[^\d]*([\d.]+)", text)
     if eur_match:
         try:
             summary.eur_usd_rate = float(eur_match.group(1))
         except ValueError:
             pass
 
-    # "现金 $24,420 (8.92% 充足 ...)" — cash amount and ratio appear together
+    # Cash: latest "现金 $24,420 (8.92% ...)" has ratio in parens.
+    # Mid-format "现金 $18,454 <span class="cash-ratio-badge">6.70% 偏低</span>"
+    # puts the ratio in a sibling span. Try inline first, then DOM-based.
     cash_match = re.search(r"现金\s*\$?([\d,]+(?:\.\d+)?)\s*\(\s*(\d+(?:\.\d+)?)\s*%", text)
     if cash_match:
         summary.combined_cash_usd = _parse_number(cash_match.group(1))
@@ -187,8 +190,16 @@ def _parse_combined_total(soup: BeautifulSoup, summary: ParsedAccountSummary) ->
             summary.cash_ratio_pct = float(cash_match.group(2))
         except ValueError:
             pass
-    elif (cash_only := re.search(r"现金\s*\$?([\d,]+(?:\.\d+)?)", text)):
-        summary.combined_cash_usd = _parse_number(cash_only.group(1))
+    else:
+        if (cash_only := re.search(r"现金\s*\$?([\d,]+(?:\.\d+)?)", text)):
+            summary.combined_cash_usd = _parse_number(cash_only.group(1))
+        # Standalone cash-ratio-badge span (mid-format)
+        if summary.cash_ratio_pct is None:
+            badge = block.select_one(".cash-ratio-badge")
+            if badge:
+                pct = _parse_number(badge.get_text())
+                if pct is not None:
+                    summary.cash_ratio_pct = pct
 
 
 def _parse_account_box(box: Tag) -> tuple[str, dict[str, Optional[float]], list[ParsedHolding]]:
@@ -209,11 +220,26 @@ def _parse_account_box(box: Tag) -> tuple[str, dict[str, Optional[float]], list[
 
     totals: dict[str, Optional[float]] = {}
 
+    # Total: latest uses .account-total div; mid-format uses .kpi-row with
+    # an item labelled "总净值".
     total_el = box.select_one(".account-total")
     if total_el:
         totals["total"] = _parse_number(total_el.get_text())
 
-    # cash-row > cash-item: label + value
+    # KPI row (mid-format): items with .label "总净值"/"今日 P&L"/"累计盈亏"/...
+    for kpi in box.select(".kpi"):
+        label_el = kpi.find(class_="label")
+        value_el = kpi.find(class_="value")
+        if not label_el or not value_el:
+            continue
+        label = label_el.get_text(strip=True)
+        value = _parse_number(value_el.get_text())
+        if "总净值" in label and totals.get("total") is None:
+            totals["total"] = value
+        elif "今日 P&L" in label or "今日 P&amp;L" in label or "今日变化" in label:
+            totals["pnl_day"] = value
+
+    # cash-row > cash-item: label + value (both formats)
     for item in box.select(".cash-item"):
         label_el = item.find(class_="label")
         value_el = item.find(class_="value")
@@ -227,7 +253,7 @@ def _parse_account_box(box: Tag) -> tuple[str, dict[str, Optional[float]], list[
             totals["invested"] = value
         elif "今日变化" in label:
             totals["pnl_day"] = value
-        # "累计 P&L" is cumulative and not in the snapshot schema — ignore
+        # "累计 P&L" / "累计盈亏" are cumulative — not in snapshot schema, ignore
 
     holdings = _parse_holdings_table(box, account, currency)
     return account, totals, holdings
@@ -266,19 +292,46 @@ def _parse_holdings_table(box: Tag, account: str, currency: str) -> list[ParsedH
     return holdings
 
 
+def _cell_ticker(cell: Tag) -> str:
+    """Pull a ticker symbol from a cell. Prefer a leading <b>/<strong> child
+    (mid-format puts "<strong>NVDA</strong> NVIDIA" — full text would
+    concatenate to "NVDANVIDIA"). Falls back to the cell's full text.
+    """
+    bold = cell.find(["b", "strong"])
+    if bold:
+        t = bold.get_text(strip=True)
+        if t:
+            return t
+    return cell.get_text(strip=True)
+
+
 def _parse_etoro_row(cells: list[Tag], currency: str) -> Optional[ParsedHolding]:
     if len(cells) < 7:
         # e.g. JEPQ "已清仓" row has colspan=6 → only 2 cells
         return None
-    ticker = cells[0].get_text(strip=True)
+    ticker = _cell_ticker(cells[0])
     if not ticker or ticker in {"—", "-"}:
         return None
-    current_price = _parse_number(cells[1].get_text())
-    pnl_day_pct = _parse_pct(cells[2].get_text())
-    shares = _parse_number(cells[3].get_text())
-    avg_cost = _parse_number(cells[4].get_text())
-    pnl_total_pct = _parse_pct(cells[5].get_text())
-    market_value = _parse_number(cells[6].get_text())
+
+    # Two column schemas seen in the wild:
+    #   Latest (7 cols): ticker | price | day% | shares | avg | pnl% | mv
+    #   Mid    (8 cols): ticker | price | day% | shares | avg | pnl$ | pnl% | mv
+    # Detect by column count.
+    if len(cells) >= 8:
+        current_price = _parse_number(cells[1].get_text())
+        pnl_day_pct = _parse_pct(cells[2].get_text())
+        shares = _parse_number(cells[3].get_text())
+        avg_cost = _parse_number(cells[4].get_text())
+        # cells[5] is pnl_usd — skip
+        pnl_total_pct = _parse_pct(cells[6].get_text())
+        market_value = _parse_number(cells[7].get_text())
+    else:
+        current_price = _parse_number(cells[1].get_text())
+        pnl_day_pct = _parse_pct(cells[2].get_text())
+        shares = _parse_number(cells[3].get_text())
+        avg_cost = _parse_number(cells[4].get_text())
+        pnl_total_pct = _parse_pct(cells[5].get_text())
+        market_value = _parse_number(cells[6].get_text())
     return ParsedHolding(
         account="etoro",
         ticker=ticker.upper(),
@@ -296,12 +349,34 @@ def _parse_etoro_row(cells: list[Tag], currency: str) -> Optional[ParsedHolding]
 def _parse_tr_row(cells: list[Tag], currency: str) -> Optional[ParsedHolding]:
     if len(cells) < 4:
         return None
-    name = cells[0].get_text(strip=True)
-    if not name:
+    name_cell = cells[0]
+    name_text = name_cell.get_text(" ", strip=True)
+    if not name_text:
         return None
+    # Mid-format wraps the ticker in <strong>/<b>, then the display name follows.
+    # When present, use the ticker directly; otherwise fall back to the TR name map.
+    bold = name_cell.find(["b", "strong"])
+    bold_ticker = bold.get_text(strip=True) if bold else ""
+    if bold_ticker and bold_ticker.isalpha() and bold_ticker.isupper():
+        ticker = bold_ticker
+    else:
+        ticker = _map_tr_ticker(name_text)
     shares = _parse_number(cells[1].get_text())
     market_value = _parse_number(cells[2].get_text())
-    pnl_total_pct = _parse_pct(cells[3].get_text())
+    # The 4th column is sometimes a percent ("+91.01%", new + 5/10 mid-format)
+    # and sometimes an absolute pnl amount in the account currency ("+6,814",
+    # seen in 5/06–5/08). Detect by presence of "%".
+    pnl_cell_text = cells[3].get_text()
+    pnl_total_pct: Optional[float]
+    if "%" in pnl_cell_text:
+        pnl_total_pct = _parse_pct(pnl_cell_text)
+    else:
+        pnl_abs = _parse_number(pnl_cell_text)
+        if pnl_abs is not None and market_value is not None and market_value != pnl_abs:
+            cost = market_value - pnl_abs
+            pnl_total_pct = (pnl_abs / cost * 100) if cost > 0 else None
+        else:
+            pnl_total_pct = None
     # Back-derive avg_cost from market_value / shares / (1 + pnl_pct/100)
     avg_cost: Optional[float] = None
     if market_value and shares and pnl_total_pct is not None and shares > 0:
@@ -311,8 +386,8 @@ def _parse_tr_row(cells: list[Tag], currency: str) -> Optional[ParsedHolding]:
             avg_cost = current_per_share / growth
     return ParsedHolding(
         account="tr",
-        ticker=_map_tr_ticker(name),
-        display_name=name,
+        ticker=ticker,
+        display_name=name_text,
         currency=currency,
         shares=shares,
         avg_cost=avg_cost,
