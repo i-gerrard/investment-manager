@@ -21,7 +21,7 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
-_BOC_URL = "https://www.boc.cn/sourcedb/whpj/"
+_BOC_URL = "https://www.bankofchina.com/sourcedb/whpj/"
 _TTL = 600  # 10 minutes
 _TIMEOUT = 10.0
 _UA = (
@@ -69,48 +69,55 @@ async def get_usd_cny(force_refresh: bool = False) -> FxRate:
 
 
 async def _fetch_boc_usd_cny() -> FxRate:
-    """Scrape BoC's 外汇牌价 page and pull out the USD middle-rate row."""
-    async with httpx.AsyncClient(timeout=_TIMEOUT, headers={"User-Agent": _UA}) as client:
+    """Scrape BoC's 外汇牌价 page and pull out the USD middle-rate row.
+
+    Page is served as UTF-8 (despite the meta tag claiming GBK on some
+    response paths). The body lists each currency as a <tr data-currency='X'>
+    with 8 cells: 货币名称 / 现汇买入 / 现钞买入 / 现汇卖出 / 现钞卖出 /
+    中行折算价 / 发布日期 / 发布时间. BoC quotes CNY per 100 foreign units,
+    so we divide by 100.
+    """
+    async with httpx.AsyncClient(timeout=_TIMEOUT, headers={"User-Agent": _UA},
+                                 follow_redirects=True) as client:
         resp = await client.get(_BOC_URL)
         resp.raise_for_status()
-        # BoC serves the page in GBK; httpx may guess wrong.
-        if resp.encoding and resp.encoding.lower() != "utf-8":
-            resp.encoding = "utf-8"
+        # Force UTF-8 — the meta tag is unreliable.
+        resp.encoding = "utf-8"
         html = resp.text
 
     soup = BeautifulSoup(html, "lxml")
-    # The page has multiple tables; the rate table contains row headers like
-    # 货币名称 / 现汇买入价 / 现钞买入价 / 现汇卖出价 / 现钞卖出价 / 中行折算价.
-    target_row = None
-    for table in soup.find_all("table"):
-        rows = table.find_all("tr")
-        if not rows:
-            continue
-        header = rows[0].get_text(" ", strip=True)
-        if "货币名称" not in header or "中行折算价" not in header:
-            continue
-        for r in rows[1:]:
-            cells = r.find_all("td")
-            if not cells:
+    row = soup.select_one("tr[data-currency='美元']")
+    if not row:
+        # Fall back to the table-walk approach in case the layout changes.
+        for table in soup.find_all("table"):
+            rows = table.find_all("tr")
+            if not rows:
                 continue
-            name = cells[0].get_text(strip=True)
-            if name == "美元":
-                target_row = cells
+            header = rows[0].get_text(" ", strip=True)
+            if "中行折算价" not in header:
+                continue
+            for r in rows[1:]:
+                cells = r.find_all("td")
+                if cells and cells[0].get_text(strip=True) == "美元":
+                    row = r
+                    break
+            if row:
                 break
-        if target_row:
-            break
+    if not row:
+        raise RuntimeError("BoC page did not contain USD row")
 
-    if not target_row or len(target_row) < 6:
-        raise RuntimeError("BoC page did not contain USD row in expected layout")
+    cells = row.find_all("td")
+    if len(cells) < 6:
+        raise RuntimeError(f"BoC USD row has too few cells: {len(cells)}")
 
-    # Columns: 货币名称 / 现汇买入 / 现钞买入 / 现汇卖出 / 现钞卖出 / 中行折算价 / 发布时间
-    mid_text = target_row[5].get_text(strip=True)
+    # cells[0]=美元, [1..4]=4 rates, [5]=中行折算价, [6]=发布日期, [7]=发布时间
+    mid_text = cells[5].get_text(strip=True)
     try:
         mid_per100 = float(mid_text.replace(",", ""))
     except ValueError as exc:
         raise RuntimeError(f"BoC middle-rate not a number: {mid_text!r}") from exc
 
-    published = target_row[6].get_text(strip=True) if len(target_row) >= 7 else None
+    published = cells[6].get_text(strip=True) if len(cells) >= 7 else None
     rate = mid_per100 / 100.0
     logger.info("BoC USD/CNY fetched: 1 USD = %.4f CNY (published %s)", rate, published)
     return FxRate(
