@@ -1,3 +1,6 @@
+import logging
+import os
+from pathlib import Path
 from typing import Optional, Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -10,6 +13,9 @@ from app.models.broker_sync import BrokerPortfolioMapping
 from app.models.report import MorningReport, SynthesisReport
 from app.models.user import User
 from app.schemas.report import (
+    BulkLoadFileResult,
+    BulkLoadRequest,
+    BulkLoadResponse,
     MorningReportCreate,
     MorningReportListResponse,
     MorningReportResponse,
@@ -22,6 +28,8 @@ from app.services.recommendation_writer import persist_recommendations
 from app.services.report import MorningReportService, SynthesisReportService
 from app.services.report_parser import parse_report
 from app.services.snapshot_writer import write_snapshot
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
 morning_service = MorningReportService()
@@ -182,3 +190,86 @@ async def _upsert_morning_report(db: AsyncSession, report_date, html: str) -> Mo
     db.add(mr)
     await db.flush()
     return mr
+
+
+# ── Bulk-load reports from a server-side directory ──
+
+@router.post("/bulk-load", response_model=BulkLoadResponse)
+async def bulk_load_reports(
+    body: BulkLoadRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Walk a server-side directory for HTML report files and ingest each one.
+
+    NOTE: this reads arbitrary paths from the server's filesystem. Acceptable
+    for a single-user local app; harden with an allowlist before exposing
+    publicly.
+    """
+    raw_path = os.path.expanduser(body.path.strip())
+    root = Path(raw_path).resolve()
+    if not root.exists() or not root.is_dir():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Path does not exist or is not a directory: {root}",
+        )
+
+    mappings = await _resolve_account_mappings(db, current_user.id)
+    if not mappings:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No broker portfolio mappings configured.",
+        )
+
+    files = sorted(root.glob(body.pattern))
+    results: list[BulkLoadFileResult] = []
+    loaded = 0
+    failed = 0
+
+    for f in files:
+        rel = str(f.relative_to(root)) if f.is_relative_to(root) else str(f)
+        try:
+            html = f.read_text(encoding="utf-8")
+            parsed = parse_report(html, fallback_filename=f.name)
+            if parsed.report_date is None:
+                raise ValueError("could not determine report_date from HTML or filename")
+            morning = await _upsert_morning_report(db, parsed.report_date, html)
+            snapshot = await write_snapshot(
+                db,
+                user_id=current_user.id,
+                report_date=parsed.report_date,
+                source="report_upload",
+                summary=parsed.summary,
+                holdings=parsed.holdings,
+                account_to_portfolio=mappings,
+                raw_html=None,
+            )
+            persisted_recs, _ = await persist_recommendations(
+                db,
+                morning_report_id=morning.id,
+                report_date=parsed.report_date,
+                recommendations=parsed.recommendations,
+            )
+            await db.commit()
+            results.append(BulkLoadFileResult(
+                file=rel,
+                report_date=parsed.report_date,
+                snapshot_id=snapshot.id,
+                holdings=len(parsed.holdings),
+                recommendations=persisted_recs,
+            ))
+            loaded += 1
+        except Exception as exc:
+            await db.rollback()
+            logger.warning("Bulk-load failed for %s: %s", f, exc)
+            results.append(BulkLoadFileResult(file=rel, error=str(exc)))
+            failed += 1
+
+    return BulkLoadResponse(
+        path=str(root),
+        pattern=body.pattern,
+        found=len(files),
+        loaded=loaded,
+        failed=failed,
+        files=results,
+    )

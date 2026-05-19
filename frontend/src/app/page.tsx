@@ -1,10 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { useGet } from "@/lib/useApi";
+import { api, ApiError } from "@/lib/api";
 import Link from "next/link";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import ErrorAlert from "@/components/ui/ErrorAlert";
 import PortfolioSummaryChart from "@/components/charts/PortfolioSummaryChart";
+import type { BulkLoadResponse } from "@/types";
 
 interface DashboardData {
   portfolios: { id: string; name: string; holding_count: number }[];
@@ -32,6 +35,9 @@ export default function Dashboard() {
         </div>
         <PortfolioSummaryChart days={90} />
       </div>
+
+      <BulkLoadCard />
+
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div className="bg-white rounded-lg shadow p-6">
@@ -84,3 +90,87 @@ export default function Dashboard() {
     </div>
   );
 }
+
+// ── Bulk load card ──
+
+function BulkLoadCard() {
+  const [path, setPath] = useState("~/Desktop/claude");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<BulkLoadResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    setBusy(true); setError(null); setResult(null);
+    try {
+      const res = await api.post<BulkLoadResponse>("/reports/bulk-load", { path });
+      setResult(res);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Bulk load failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const failed = result?.files.filter((f) => f.error) ?? [];
+  const succeeded = result?.files.filter((f) => !f.error) ?? [];
+
+  return (
+    <div className="bg-white rounded-lg shadow p-6 space-y-3">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-lg font-semibold text-primary">Load all reports</h2>
+        <span className="text-xs text-gray-500">
+          server scans <code className="font-mono bg-gray-100 px-1">**/report-*.html</code>
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+          placeholder="~/Desktop/claude"
+          className="flex-1 min-w-[260px] font-mono text-sm px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+        />
+        <button onClick={load} disabled={busy || !path.trim()}
+                className="bg-primary text-white px-4 py-2 rounded-md text-sm hover:bg-primary-light disabled:opacity-50">
+          {busy ? "Loading..." : "Load all"}
+        </button>
+      </div>
+      {error && <p className="text-red-700 text-sm">{error}</p>}
+      {result && (
+        <div className="text-sm space-y-2">
+          <p>
+            Found <span className="font-semibold">{result.found}</span> files ·
+            <span className="text-green-700 font-semibold"> {result.loaded} loaded</span>
+            {result.failed > 0 && <span className="text-red-700 font-semibold"> · {result.failed} failed</span>}
+            <span className="text-gray-400"> · {result.path}</span>
+          </p>
+          {succeeded.length > 0 && (
+            <details className="text-xs text-gray-600">
+              <summary className="cursor-pointer hover:text-gray-800">Show loaded ({succeeded.length})</summary>
+              <ul className="mt-2 space-y-0.5 pl-4 max-h-60 overflow-auto">
+                {succeeded.map((f) => (
+                  <li key={f.file} className="font-mono">
+                    {f.report_date} · {f.holdings ?? "?"} holdings · {f.recommendations ?? "?"} recs
+                    <span className="text-gray-400 ml-2">{f.file}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {failed.length > 0 && (
+            <details className="text-xs text-red-700" open>
+              <summary className="cursor-pointer hover:text-red-900">Show errors ({failed.length})</summary>
+              <ul className="mt-2 space-y-0.5 pl-4 max-h-60 overflow-auto">
+                {failed.map((f) => (
+                  <li key={f.file} className="font-mono">
+                    {f.file}: <span className="text-red-600">{f.error}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+

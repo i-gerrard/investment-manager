@@ -147,6 +147,24 @@ export interface ReportUploadResponse {
   skipped_recommendations: number;
 }
 
+export interface BulkLoadFileResult {
+  file: string;
+  report_date: string | null;
+  snapshot_id: string | null;
+  holdings: number | null;
+  recommendations: number | null;
+  error: string | null;
+}
+
+export interface BulkLoadResponse {
+  path: string;
+  pattern: string;
+  found: number;
+  loaded: number;
+  failed: number;
+  files: BulkLoadFileResult[];
+}
+
 // ── Review APIs (Phase C) ──
 
 export type ExecutionStatus = "executed" | "skipped" | "partial";

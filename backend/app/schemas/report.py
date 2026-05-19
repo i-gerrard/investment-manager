@@ -70,3 +70,28 @@ class ReportUploadResponse(BaseModel):
     recommendations_persisted: int = 0  # written as standalone StockCard rows
     skipped_holdings: int = 0  # holdings without an account mapping
     skipped_recommendations: int = 0  # rows where ticker couldn't be extracted
+
+
+# ── Bulk load from a server-side directory ──
+
+class BulkLoadRequest(BaseModel):
+    path: str = Field(min_length=1)
+    pattern: str = "**/report-*.html"
+
+
+class BulkLoadFileResult(BaseModel):
+    file: str
+    report_date: Optional[date] = None
+    snapshot_id: Optional[str] = None
+    holdings: Optional[int] = None
+    recommendations: Optional[int] = None
+    error: Optional[str] = None
+
+
+class BulkLoadResponse(BaseModel):
+    path: str
+    pattern: str
+    found: int
+    loaded: int
+    failed: int
+    files: list[BulkLoadFileResult]
