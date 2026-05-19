@@ -7,6 +7,7 @@ import type {
   HoldingSnapshotRow,
   SnapshotDetail,
   SnapshotListItem,
+  UsdCnyRate,
 } from "@/types";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import ErrorAlert from "@/components/ui/ErrorAlert";
@@ -47,6 +48,8 @@ function LatestSnapshotView({ reportDate }: { reportDate: string }) {
 
   const totals = useMemo(() => deriveTotals(allHoldings.data), [allHoldings.data]);
 
+  const fx = useGet<UsdCnyRate>("/fx/usd-cny");
+
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-baseline justify-between gap-3">
@@ -69,9 +72,11 @@ function LatestSnapshotView({ reportDate }: { reportDate: string }) {
         </div>
       </header>
 
-      <SummaryGrid detail={detail.data} totals={totals}
+      <SummaryGrid detail={detail.data} totals={totals} fx={fx.data}
                    loading={detail.loading || allHoldings.loading}
                    error={detail.error ?? allHoldings.error} />
+
+      <FxFootnote fx={fx.data} loading={fx.loading} error={fx.error} onRetry={fx.refetch} />
 
       <AccountStrip detail={detail.data} />
 
@@ -109,10 +114,11 @@ function LatestSnapshotView({ reportDate }: { reportDate: string }) {
 // ── Top metric grid: combined total / today P&L / total return / cash ──
 
 function SummaryGrid({
-  detail, totals, loading, error,
+  detail, totals, fx, loading, error,
 }: {
   detail: SnapshotDetail | null;
   totals: DerivedTotals;
+  fx: UsdCnyRate | null;
   loading: boolean;
   error: string | null;
 }) {
@@ -121,26 +127,64 @@ function SummaryGrid({
   if (!detail) return null;
 
   const todayPnlUsd = combinedTodayPnl(detail);
+  const cny = (v: number | null | undefined) =>
+    fx && v != null ? `≈ ¥${(v * fx.rate).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : null;
 
   return (
     <div className="bg-white rounded-lg shadow p-5 grid grid-cols-2 md:grid-cols-4 gap-5">
-      <BigMetric label="总资产 (USD)"
+      <BigMetric label="总资产"
                  value={fmtUsd(detail.combined_total_usd)}
+                 subValue={cny(detail.combined_total_usd)}
                  accent />
       <BigMetric label="总收益（自买入）"
                  value={totals.totalCost > 0 ? fmtSignedUsd(totals.totalReturnUsd) : "—"}
-                 subValue={totals.totalCost > 0 ? `${signedPct(totals.totalReturnPct)}` : null}
+                 subValue={
+                   totals.totalCost > 0
+                     ? `${signedPct(totals.totalReturnPct)}${cny(totals.totalReturnUsd) ? " · " + cny(totals.totalReturnUsd) : ""}`
+                     : null
+                 }
                  color={pnlColor(totals.totalReturnUsd)} />
       <BigMetric label="今日 P&L"
                  value={todayPnlUsd != null ? fmtSignedUsd(todayPnlUsd) : "—"}
-                 subValue={todayPnlUsd != null && detail.combined_total_usd
-                   ? `${signedPct((todayPnlUsd / (detail.combined_total_usd - todayPnlUsd)) * 100)}`
-                   : null}
+                 subValue={
+                   todayPnlUsd != null && detail.combined_total_usd
+                     ? `${signedPct((todayPnlUsd / (detail.combined_total_usd - todayPnlUsd)) * 100)}${cny(todayPnlUsd) ? " · " + cny(todayPnlUsd) : ""}`
+                     : null
+                 }
                  color={pnlColor(todayPnlUsd)} />
       <BigMetric label="现金"
                  value={fmtUsd(detail.combined_cash_usd)}
-                 subValue={detail.cash_ratio_pct != null ? `${detail.cash_ratio_pct.toFixed(1)}% cash ratio` : null} />
+                 subValue={
+                   [
+                     detail.cash_ratio_pct != null ? `${detail.cash_ratio_pct.toFixed(1)}% cash ratio` : null,
+                     cny(detail.combined_cash_usd),
+                   ].filter(Boolean).join(" · ") || null
+                 } />
     </div>
+  );
+}
+
+function FxFootnote({
+  fx, loading, error, onRetry,
+}: { fx: UsdCnyRate | null; loading: boolean; error: string | null; onRetry: () => void }) {
+  if (loading) {
+    return <p className="text-xs text-gray-400">加载实时汇率…</p>;
+  }
+  if (error || !fx) {
+    return (
+      <p className="text-xs text-red-700">
+        汇率获取失败：{error ?? "unknown"} <button onClick={onRetry} className="underline ml-2">retry</button>
+      </p>
+    );
+  }
+  const fetched = new Date(fx.fetched_at * 1000).toLocaleString();
+  return (
+    <p className="text-xs text-gray-500">
+      USD/CNY = <span className="font-mono text-gray-700">{fx.rate.toFixed(4)}</span>
+      {" "}· source {fx.source.toUpperCase()}
+      {fx.published_at && ` · 中行发布 ${fx.published_at}`}
+      {" "}· 刷新于 {fetched}
+    </p>
   );
 }
 

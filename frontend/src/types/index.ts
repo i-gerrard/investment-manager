@@ -165,6 +165,14 @@ export interface BulkLoadResponse {
   files: BulkLoadFileResult[];
 }
 
+export interface UsdCnyRate {
+  pair: string;
+  rate: number;
+  fetched_at: number;
+  published_at: string | null;
+  source: string;
+}
+
 // ── Review APIs (Phase C) ──
 
 export type ExecutionStatus = "executed" | "skipped" | "partial";
